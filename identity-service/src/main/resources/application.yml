@@ -1,0 +1,32 @@
+server:
+  port: 8081
+  servlet:
+    context-path: /identity
+spring:
+  application:
+    name: identity-service
+
+  datasource:
+    url: "jdbc:mysql://localhost:3306/social_identity"
+    driverClassName: "com.mysql.cj.jdbc.Driver"
+    username: root
+    password: 2004
+    jpa:
+      hibernate:
+        ddl-auto: update
+      show-sql: true
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+jwt:
+  expiryHour: 1
+  expiryDay: 14
+  secretKey: ${JWT_SECRET_KEY:VpKMvbaC6AdlBFwJv+1uw8Fxmk1X4NbHx4LZifIS82A=}
+  refreshKey: ${JWT_REFRESH_KEY:vSV7CcCeWfrYj4CG32bqMwoHvxESWdMVrJF8qx8vNAA=}
+  resetKey: ${JWT_RESET_KEY:0Ohs3ta9nEJkDJ45bCfHmiolLxU4iyxG1q8IJHpcekE=}
+  verifyKey: ${JWT_VERIFY_KEY:uaCHgwWkKr4LLBURDO7opRUlgcNf7VN0fdVVNcdT+3Q=}
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka
