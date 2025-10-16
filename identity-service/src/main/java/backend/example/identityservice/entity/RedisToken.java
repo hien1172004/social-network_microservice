@@ -12,15 +12,11 @@ import java.io.Serializable;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-@RedisHash(value = "RedisToken") // TTL = 0 => set động trong service
+@RedisHash(value = "RedisToken")
 public class RedisToken implements Serializable {
     @Id
-    private String id;
-    private String accessToken;
-    private String refreshToken;
-    private String resetToken;
-    private String verificationToken;
+    private String jwtId;
 
     @TimeToLive
-    private Long ttl;
+    private Long expiration; // in seconds
 }

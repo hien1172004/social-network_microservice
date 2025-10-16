@@ -33,3 +33,9 @@ eureka:
 app:
   services:
     profile: http://localhost:8082/profile
+  redis:
+    ttl:
+      access-seconds: 900        # 15 phút
+      refresh-seconds: 604800   # 7 ngày
+      verify-seconds: 86400     # 24 giờ (bạn có thể set 10m nếu thích)
+      reset-seconds: 600        # 10 phút

@@ -1,5 +1,6 @@
 package backend.example.identityservice.service.impl;
 
+import backend.example.identityservice.dto.TokenPayload;
 import backend.example.identityservice.entity.User;
 import backend.example.identityservice.exception.AppException;
 import backend.example.identityservice.exception.ErrorCode;
@@ -23,6 +24,7 @@ import java.security.Key;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 import java.util.function.Function;
 
 import static backend.example.identityservice.utils.TokenType.VERIFICATION_TOKEN;
@@ -57,6 +59,7 @@ public class JwtServiceImpl implements JwtService {
     private String generateToken(Map<String, Object> claims, User user, TokenType type, long durationMs) {
         return Jwts.builder()
                 .setClaims(claims)
+                .setId(UUID.randomUUID().toString())
                 .setSubject(user.getId())              // sub = userId
                 .claim("username", user.getUsername())
                 .claim("email", user.getEmail())
@@ -126,6 +129,10 @@ public class JwtServiceImpl implements JwtService {
     public String extractEmail(String token, TokenType type) {
         return extractClaim(token, type, claims -> claims.get("email", String.class));
     }
+    @Override
+    public String extractJwtId(String token, TokenType type) {
+        return extractClaim(token, type, Claims::getId);
+    }
 
     private boolean isTokenExpired(String token, TokenType type) {
         Date expiration = extractClaim(token, type, Claims::getExpiration);
@@ -136,5 +143,14 @@ public class JwtServiceImpl implements JwtService {
     public boolean isValid(String token, TokenType type, User user) {
         final String userId = extractUserId(token, type);
         return userId.equals(user.getId()) && !isTokenExpired(token, type);
+    }
+    @Override
+    public TokenPayload parseToken(String token, TokenType type) {
+        Claims claims = extractAllClaims(token, type);
+        return TokenPayload.builder()
+                .token(token)
+                .jwtId(claims.getId())
+                .expiredTime(claims.getExpiration())
+                .build();
     }
 }

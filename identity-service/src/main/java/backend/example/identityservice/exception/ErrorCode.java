@@ -22,7 +22,9 @@ public enum ErrorCode {
     EMAIL_EXISTED(1011, "Email existed", HttpStatus.BAD_REQUEST),
     USER_NOT_ACTIVE(1012, "User not active", HttpStatus.FORBIDDEN),
     INVALID_CREDENTIALS(1013, "Email hoặc mật khẩu không đúng", HttpStatus.BAD_REQUEST),
-    VERIFICATION_TOKEN_INVALID(1011, "Token xác nhận không hợp lệ", HttpStatus.BAD_REQUEST)
+    VERIFICATION_TOKEN_INVALID(1011, "Token xác nhận không hợp lệ", HttpStatus.BAD_REQUEST),
+    TOKEN_REVOKED(1012, "Refresh token revoked", HttpStatus.UNAUTHORIZED),
+    TOKEN_EXPIRED(1013, "Token expired", HttpStatus.UNAUTHORIZED),
 
 
     ;
