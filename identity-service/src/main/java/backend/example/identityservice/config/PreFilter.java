@@ -1,5 +1,6 @@
 package backend.example.identityservice.config;
 
+import backend.example.identityservice.entity.User;
 import backend.example.identityservice.exception.AppException;
 import backend.example.identityservice.exception.ErrorCode;
 import backend.example.identityservice.repository.UserRepository;
@@ -51,23 +52,29 @@ public class PreFilter extends OncePerRequestFilter {
         final String token = authorization.substring("Bearer ".length());
         log.info("Token: {}", token);
 
-        final String email = jwtService.extractUsername(token, TokenType.ACCESS_TOKEN);
+        try {
+            // Lấy userId từ sub
+            final String userId = jwtService.extractUserId(token, TokenType.ACCESS_TOKEN);
 
-        if (StringUtils.isNotEmpty(email) && SecurityContextHolder.getContext().getAuthentication() == null) {
-            log.info("User1: {}", email);
+            if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+                log.info("UserId from token: {}", userId);
 
-            UserDetails userDetails = userRepository.findByEmail(email)
-                    .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
-            log.info("User2: {}", userDetails.getUsername());
-            if (jwtService.isValid(token, TokenType.ACCESS_TOKEN, userDetails)) {
-                SecurityContext context = SecurityContextHolder.createEmptyContext();
-                UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
-                log.info("Authentication: {}", authentication);
-                authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-                context.setAuthentication(authentication);
-                SecurityContextHolder.setContext(context);
-                log.info("Successfully authenticated user: {}", userDetails.getUsername());
+                // Lookup user từ DB
+                User user = userRepository.findById(userId)
+                        .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+
+                // Kiểm tra token hợp lệ
+                if (jwtService.isValid(token, TokenType.ACCESS_TOKEN, user)) {
+                    UsernamePasswordAuthenticationToken authentication =
+                            new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
+                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                    log.info("Successfully authenticated user: {}", user.getUsername());
+                }
             }
+        } catch (Exception e) {
+            log.error("Cannot set user authentication: {}", e.getMessage());
         }
 
         filterChain.doFilter(request, response);

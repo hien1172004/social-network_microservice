@@ -9,8 +9,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+
+import java.net.URI;
 
 @Slf4j
 @Validated
@@ -80,12 +84,20 @@ public class AuthenticationController {
     }
 
     @GetMapping("/verify-email")
-    public ApiResponse<String> verifyEmail(@RequestParam String token) {
+    public ResponseEntity<Void> verifyEmail(@RequestParam("token") String token) {
         log.info("Verifying email with token: {}", token);
-        String message = authenticationService.verifyEmail(token);
-        return ApiResponse.<String>builder()
-                .result(message)
-                .build();
 
+        TokenResponse tokenResponse = authenticationService.verifyEmail(token);
+
+        //  URL FE mà bạn muốn redirect về (đổi lại theo domain của bạn)
+        String redirectUrl = String.format(
+                "https://yourfrontend.com/auth/success?accessToken=%s&refreshToken=%s",
+                tokenResponse.getAccessToken(),
+                tokenResponse.getRefreshToken()
+        );
+
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(redirectUrl))
+                .build();
     }
 }

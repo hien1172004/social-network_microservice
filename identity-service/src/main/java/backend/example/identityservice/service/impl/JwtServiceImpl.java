@@ -1,5 +1,6 @@
 package backend.example.identityservice.service.impl;
 
+import backend.example.identityservice.entity.User;
 import backend.example.identityservice.exception.AppException;
 import backend.example.identityservice.exception.ErrorCode;
 import backend.example.identityservice.service.JwtService;
@@ -50,67 +51,53 @@ public class JwtServiceImpl implements JwtService {
     private String verifyKey;
 
 
-    private String generateToken(Map<String, Object> claims, UserDetails userDetails){
-        if (userDetails instanceof backend.example.identityservice.entity.User appUser) {
-            claims.put("userId", appUser.getId());
-            claims.put("email", appUser.getEmail());
-            claims.put("roles", appUser.getAuthorities()
-                    .stream()
-                    .map(GrantedAuthority::getAuthority)
-                    .toList());
-        }
+
+    // ------------------- Generate Tokens -------------------
+
+    private String generateToken(Map<String, Object> claims, User user, TokenType type, long durationMs) {
         return Jwts.builder()
                 .setClaims(claims)
-                .setSubject(userDetails.getUsername())
-                .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date((System.currentTimeMillis()) + 1000 * 60 * 60 * 24 * expiryHour))
-                .signWith(getKey(TokenType.ACCESS_TOKEN), SignatureAlgorithm.HS256)
+                .setSubject(user.getId())              // sub = userId
+                .claim("username", user.getUsername())
+                .claim("email", user.getEmail())
+                .setIssuedAt(new Date())
+                .setExpiration(new Date(System.currentTimeMillis() + durationMs))
+                .signWith(getKey(type), SignatureAlgorithm.HS256)
                 .compact();
     }
 
-    private String generateRefreshToken(Map<String, Object> claims, UserDetails userDetails){
-        return Jwts.builder()
-                .setClaims(claims)
-                .setSubject(userDetails.getUsername())
-                .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date((System.currentTimeMillis()) + 1000 * 60 * 60 * 24 * expiryDay))
-                .signWith(getKey(TokenType.REFRESH_TOKEN), SignatureAlgorithm.HS256)
-                .compact();
+    @Override
+    public String generateToken(User user) {
+        return generateToken(new HashMap<>(), user, TokenType.ACCESS_TOKEN, 1000 * 60 * 60 * 24 * expiryHour);
     }
 
-    private String generateResetToken(Map<String, Object> claims, UserDetails userDetails){
-        return Jwts.builder()
-                .setClaims(claims)
-                .setSubject(userDetails.getUsername())
-                .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date((System.currentTimeMillis()) + 1000 * 60 * 60))
-                .signWith(getKey(TokenType.RESET_TOKEN), SignatureAlgorithm.HS256)
-                .compact();
+    @Override
+    public String generateRefreshToken(User user) {
+        return generateToken(new HashMap<>(), user, TokenType.REFRESH_TOKEN, 1000 * 60 * 60 * 24 * expiryDay);
     }
-    private String generateVerificationToken(Map<String, Object> claims, UserDetails userDetails) {
-        return Jwts.builder()
-                .setClaims(claims)
-                .setSubject(userDetails.getUsername())
-                .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + 1000 * 60 * 60 * 24))
-                .signWith(getKey(VERIFICATION_TOKEN), SignatureAlgorithm.HS256)
-                .compact();
+
+    @Override
+    public String generateResetToken(User user) {
+        return generateToken(new HashMap<>(), user, TokenType.RESET_TOKEN, 1000 * 60 * 60);
     }
-    private Key getKey(TokenType type){
-        switch (type){
-            case ACCESS_TOKEN -> {return Keys.hmacShaKeyFor(Decoders.BASE64.decode(secretKey));}
-            case REFRESH_TOKEN -> {return Keys.hmacShaKeyFor(Decoders.BASE64.decode(refreshKey));}
-            case RESET_TOKEN -> {return Keys.hmacShaKeyFor(Decoders.BASE64.decode(resetKey));}
-            case VERIFICATION_TOKEN -> {return Keys.hmacShaKeyFor(Decoders.BASE64.decode(verifyKey));}
+
+    @Override
+    public String generateVerificationToken(User user) {
+        return generateToken(new HashMap<>(), user, VERIFICATION_TOKEN, 1000 * 60 * 60 * 24); // 24h
+    }
+
+    // ------------------- Validate / Extract Claims -------------------
+
+    private Key getKey(TokenType type) {
+        switch (type) {
+            case ACCESS_TOKEN -> { return Keys.hmacShaKeyFor(Decoders.BASE64.decode(secretKey)); }
+            case REFRESH_TOKEN -> { return Keys.hmacShaKeyFor(Decoders.BASE64.decode(refreshKey)); }
+            case RESET_TOKEN -> { return Keys.hmacShaKeyFor(Decoders.BASE64.decode(resetKey)); }
+            case VERIFICATION_TOKEN -> { return Keys.hmacShaKeyFor(Decoders.BASE64.decode(verifyKey)); }
             default -> throw new AppException(ErrorCode.INVALID_KEY);
         }
     }
-    private <T> T extractClaim(String token, TokenType type, Function<Claims, T> claimsResolver){
-        final Claims claims = extraAllClaim(token, type);
-        return claimsResolver.apply(claims);
-    }
-
-    private Claims extraAllClaim(String token, TokenType type){
+    private Claims extractAllClaims(String token, TokenType type) {
         try {
             return Jwts.parserBuilder()
                     .setSigningKey(getKey(type))
@@ -121,45 +108,33 @@ public class JwtServiceImpl implements JwtService {
             throw new AppException(ErrorCode.UNAUTHENTICATED);
         }
     }
-    private boolean isTokenExpired(String token, TokenType type) {
-        Date expiration = extractExpiration(token, type);
-        return expiration != null && expiration.before(new Date());
+    private <T> T extractClaim(String token, TokenType type, Function<Claims, T> claimsResolver){
+        final Claims claims = extractAllClaims(token, type);
+        return claimsResolver.apply(claims);
     }
-
-    private Date extractExpiration(String token, TokenType type) {
-        return extractClaim(token, type, Claims::getExpiration);
-    }
-
     @Override
-    public String generateToken(UserDetails user) {
-        return generateToken(new HashMap<>(), user);
+    public String extractUserId(String token, TokenType type) {
+        return extractClaim(token, type, Claims::getSubject); // sub = userId
     }
 
     @Override
     public String extractUsername(String token, TokenType type) {
-        return extractClaim(token, type, Claims::getSubject);
+        return extractClaim(token, type, claims -> claims.get("username", String.class));
     }
 
     @Override
-    public boolean isValid(String token, TokenType type, UserDetails userDetails) {
-        log.info("---------- isValid ----------");
-        log.info("Checking token validity: type={}, id={}", type, userDetails.getUsername());
-        final String id = extractUsername(token, type);
-        return (id.equals(userDetails.getUsername()) && !isTokenExpired(token, type));
+    public String extractEmail(String token, TokenType type) {
+        return extractClaim(token, type, claims -> claims.get("email", String.class));
+    }
+
+    private boolean isTokenExpired(String token, TokenType type) {
+        Date expiration = extractClaim(token, type, Claims::getExpiration);
+        return expiration != null && expiration.before(new Date());
     }
 
     @Override
-    public String generateRefreshToken(UserDetails user) {
-        return generateRefreshToken(new HashMap<>(), user);
-    }
-
-    @Override
-    public String generateResetToken(UserDetails user) {
-        return generateResetToken(new HashMap<>(), user);
-    }
-
-    @Override
-    public String generateVerificationToken(UserDetails user) {
-        return generateVerificationToken(new HashMap<>(), user);
+    public boolean isValid(String token, TokenType type, User user) {
+        final String userId = extractUserId(token, type);
+        return userId.equals(user.getId()) && !isTokenExpired(token, type);
     }
 }

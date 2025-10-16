@@ -25,7 +25,7 @@ public interface AuthenticationService {
 
     String signUp(SignUpDTO request);
 
-    String verifyEmail(String token);
+    TokenResponse verifyEmail(String token);
 
     IntrospectResponse introspect(IntrospectRequest request);
 

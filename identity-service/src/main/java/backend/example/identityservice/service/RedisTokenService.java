@@ -18,10 +18,13 @@ public class RedisTokenService {
     }
 
     public void delete(String id) {
+        if(!redisTokenRepository.existsById(id)){
+            throw new AppException(ErrorCode.USER_NOT_EXISTED);
+        }
         redisTokenRepository.deleteById(id);
     }
 
-    public RedisToken getById(String email) {
-        return  redisTokenRepository.findById(email).orElseThrow(()-> new AppException(ErrorCode.EMAIL_NOT_FOUND));
+    public RedisToken getById(String userId) {
+        return  redisTokenRepository.findById(userId).orElseThrow(()-> new AppException(ErrorCode.USER_NOT_EXISTED));
     }
 }

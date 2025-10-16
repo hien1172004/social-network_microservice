@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class SignInRequest {
     @NotBlank(message = "user must be not null")
-    private String email;
+    private String username;
     @NotBlank(message = "password must be not null")
     private String password;
 }
