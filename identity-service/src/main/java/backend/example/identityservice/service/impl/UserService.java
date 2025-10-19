@@ -20,21 +20,21 @@ public class UserService implements UserDetailsService {
 
     /**
      * Load user by email (dùng email làm định danh).
-     * @param  username của user
+     * @param  email của user
      * @return UserDetails
      * @throws UsernameNotFoundException nếu không tìm thấy
      */
     @Override
-    public UserDetails loadUserByUsername(String username){
-        return userRepository.findByUsername(username)
-                .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+    public UserDetails loadUserByUsername(String email){
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + email));
     }
 
     /**
      * Tùy chọn: lấy User entity gốc nếu cần.
      */
-    public User findByEmail(String email) {
-        return userRepository.findByEmail(email)
-                .orElseThrow(() -> new AppException(ErrorCode.EMAIL_NOT_FOUND));
+    public User findById(String id) {
+        return userRepository.findById(id).orElseThrow(()
+                -> new AppException(ErrorCode.USER_NOT_EXISTED));
     }
 }

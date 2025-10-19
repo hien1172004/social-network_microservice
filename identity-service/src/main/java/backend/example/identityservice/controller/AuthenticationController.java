@@ -19,7 +19,7 @@ import java.net.URI;
 @Slf4j
 @Validated
 @RestController
-@RequestMapping("/api/auth")
+@RequestMapping("/auth")
 @RequiredArgsConstructor
 public class AuthenticationController {
 

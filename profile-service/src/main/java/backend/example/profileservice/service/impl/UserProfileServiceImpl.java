@@ -6,7 +6,7 @@ import backend.example.profileservice.dto.response.PageResponse;
 import backend.example.profileservice.dto.response.UserProfileResponse;
 import backend.example.profileservice.entity.UserProfile;
 import backend.example.profileservice.mapper.UserMapper;
-import backend.example.profileservice.repository.UserRepository;
+import backend.example.profileservice.repository.UserProfileRepository;
 import backend.example.profileservice.service.BaseRedisService;
 import backend.example.profileservice.service.UserProfileService;
 import backend.example.profileservice.exception.AppException;
@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
 @Slf4j
 public class UserProfileServiceImpl implements UserProfileService {
     UserMapper userMapper;
-    UserRepository userRepository;
+    UserProfileRepository userRepository;
     private final BaseRedisService<String, String, Object> baseRedisService;
     public static final String USER_PROFILE_BY_ID = "USER_PROFILE:ID:";
     public static final String USER_PROFILE_BY_USERID = "USER_PROFILE:USERID:";

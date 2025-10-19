@@ -53,8 +53,10 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
     public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
         log.info("Enter authentication filter....");
 
-        if (isPublicEndpoint(exchange.getRequest()))
+        if (isPublicEndpoint(exchange.getRequest())){
+            log.info("Public endpoint, skipping authentication");
             return chain.filter(exchange);
+        }
 
         // Get token from authorization header
         List<String> authHeader = exchange.getRequest().getHeaders().get(HttpHeaders.AUTHORIZATION);
@@ -65,8 +67,23 @@ public class AuthenticationFilter implements GlobalFilter, Ordered {
         log.info("Token: {}", token);
 
         return identityService.introspect(token).flatMap(introspectResponse -> {
-            if (introspectResponse.getResult().isValid())
-                return chain.filter(exchange);
+            if (introspectResponse.getResult().isValid()){
+                // Lấy thông tin user
+                var result = introspectResponse.getResult();
+                log.info("Token valid for user {}", result.getUserId());
+
+                // Thêm header vào request để service con sử dụng
+                ServerHttpRequest mutatedRequest = exchange.getRequest().mutate()
+                        .header("X-User-Id", result.getUserId())
+                        .header("X-User-Roles", String.join(",", result.getRoles()))
+                        .build();
+
+                ServerWebExchange mutatedExchange = exchange.mutate()
+                        .request(mutatedRequest)
+                        .build();
+
+                return chain.filter(mutatedExchange);
+            }
             else
                 return unauthenticated(exchange.getResponse());
         }).onErrorResume(throwable -> unauthenticated(exchange.getResponse()));

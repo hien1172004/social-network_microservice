@@ -4,6 +4,7 @@ import backend.example.identityservice.dto.TokenPayload;
 import backend.example.identityservice.entity.User;
 import backend.example.identityservice.utils.TokenType;
 
+import java.util.List;
 
 
 public interface JwtService {
@@ -18,7 +19,9 @@ public interface JwtService {
     String extractUsername(String token, TokenType type); // Lấy username từ claim
     String extractEmail(String token, TokenType type);    // Lấy email từ claim
     String extractJwtId(String token, TokenType type);     // Lấy jti từ claim
+    List<String> extractRoles(String token, TokenType type);
     // ------------------- Validate Token -------------------
     boolean isValid(String token, TokenType type, User user);
     TokenPayload parseToken(String token, TokenType type);
+    String extractUserIdWithoutValidation(String token, TokenType type);
 }

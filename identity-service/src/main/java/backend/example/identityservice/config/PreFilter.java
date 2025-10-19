@@ -15,6 +15,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang.StringUtils;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -24,6 +26,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
 
 import static org.springframework.http.HttpHeaders.AUTHORIZATION;
@@ -41,42 +46,38 @@ public class PreFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
         log.info("---------- doFilterInternal ----------");
 
-        final String authorization = request.getHeader(AUTHORIZATION);
-        log.info("Authorization: {}", authorization);
+        // Extract user info từ headers (Gateway đã set)
+        String userId = request.getHeader("X-User-Id");
+        String rolesHeader = request.getHeader("X-User-Roles");
 
-        if (StringUtils.isBlank(authorization) || !authorization.startsWith("Bearer ")) {
-            filterChain.doFilter(request, response);
-            return;
-        }
+        if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
+            // Tạo authentication từ headers
+            List<GrantedAuthority> authorities = createAuthoritiesFromHeader(rolesHeader);
 
-        final String token = authorization.substring("Bearer ".length());
-        log.info("Token: {}", token);
+            UsernamePasswordAuthenticationToken authentication =
+                    new UsernamePasswordAuthenticationToken(userId, null, authorities);
 
-        try {
-            // Lấy userId từ sub
-            final String userId = jwtService.extractUserId(token, TokenType.ACCESS_TOKEN);
-
-            if (userId != null && SecurityContextHolder.getContext().getAuthentication() == null) {
-                log.info("UserId from token: {}", userId);
-
-                // Lookup user từ DB
-                User user = userRepository.findById(userId)
-                        .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
-
-                // Kiểm tra token hợp lệ
-                if (jwtService.isValid(token, TokenType.ACCESS_TOKEN, user)) {
-                    UsernamePasswordAuthenticationToken authentication =
-                            new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
-                    authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-
-                    SecurityContextHolder.getContext().setAuthentication(authentication);
-                    log.info("Successfully authenticated user: {}", user.getUsername());
-                }
-            }
-        } catch (Exception e) {
-            log.error("Cannot set user authentication: {}", e.getMessage());
+            SecurityContextHolder.getContext().setAuthentication(authentication);
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private List<GrantedAuthority> createAuthoritiesFromHeader(String rolesHeader) {
+        if (rolesHeader == null || rolesHeader.isEmpty()) {
+            return List.of(new SimpleGrantedAuthority("ROLE_USER"));
+        }
+
+        return Arrays.stream(rolesHeader.split(","))
+                .map(String::trim)
+                .filter(role -> !role.isEmpty())
+                .map(role -> {
+                    String roleName = role.toUpperCase();
+                    if (!roleName.startsWith("ROLE_")) {
+                        roleName = "ROLE_" + roleName;
+                    }
+                    return new SimpleGrantedAuthority(roleName);
+                })
+                .collect(Collectors.toList());
     }
 }

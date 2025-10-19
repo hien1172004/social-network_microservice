@@ -1,5 +1,6 @@
     package backend.example.identityservice.service.impl;
 
+    import backend.example.event.dto.NotificationEvent;
     import backend.example.identityservice.dto.TokenPayload;
     import backend.example.identityservice.dto.request.*;
     import backend.example.identityservice.dto.response.IntrospectResponse;
@@ -23,12 +24,14 @@
     import lombok.extern.slf4j.Slf4j;
     import org.apache.commons.lang.StringUtils;
     import org.springframework.http.HttpHeaders;
+    import org.springframework.kafka.core.KafkaTemplate;
     import org.springframework.security.authentication.AuthenticationManager;
     import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+    import org.springframework.security.core.GrantedAuthority;
     import org.springframework.security.crypto.password.PasswordEncoder;
     import org.springframework.stereotype.Service;
-
     import java.util.Date;
+    import java.util.Map;
     import java.util.Set;
 
     import static backend.example.identityservice.utils.TokenType.RESET_TOKEN;
@@ -48,7 +51,7 @@
         RoleRepository roleRepository;
         ProfileClient profileClient;
         RedisTokenRepository redisTokenRepository;
-
+        KafkaTemplate<String, Object> kafkaTemplate;
 
         // ---------- Helper Methods ----------
 
@@ -74,10 +77,12 @@
                     .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
         }
 
-        private void saveTokenToRedis(TokenPayload payload) {
+        private void saveTokenToRedis(TokenPayload payload, TokenType tokenType, String userId) {
             long ttl = (payload.getExpiredTime().getTime() - System.currentTimeMillis()) / 1000;
             redisTokenRepository.save(RedisToken.builder()
                     .jwtId(payload.getJwtId())
+                    .userId(userId) // ✅ Lưu userId
+                    .tokenType(tokenType) // ✅ Lưu tokenType
                     .expiration(ttl)
                     .build());
         }
@@ -90,7 +95,19 @@
                             .build()));
         }
 
+        private TokenResponse getTokenResponse(User user) {
+            String accessToken = jwtService.generateToken(user);
+            String refreshToken = jwtService.generateRefreshToken(user);
 
+            TokenPayload payload = jwtService.parseToken(refreshToken, TokenType.REFRESH_TOKEN);
+            saveTokenToRedis(payload, TokenType.REFRESH_TOKEN, user.getId());
+
+            return TokenResponse.builder()
+                    .accessToken(accessToken)
+                    .refreshToken(refreshToken)
+                    .userId(user.getId())
+                    .build();
+        }
         // -------------------- AUTH ENDPOINTS --------------------
         @Override
         public TokenResponse accessToken(SignInRequest request) {
@@ -105,17 +122,10 @@
                     new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword())
             );
             log.info("[ACCESS_TOKEN] Login success for user: {}", request.getEmail());
-            String accessToken = jwtService.generateToken(user);
-            String refreshToken = jwtService.generateRefreshToken(user);
-
-            saveTokenToRedis(jwtService.parseToken(refreshToken, TokenType.REFRESH_TOKEN));
-
-            return TokenResponse.builder()
-                    .accessToken(accessToken)
-                    .refreshToken(refreshToken)
-                    .userId(user.getId())
-                    .build();
+            return getTokenResponse(user);
         }
+
+
 
         @Override
         public TokenResponse refreshToken(HttpServletRequest request) {
@@ -127,27 +137,39 @@
 
             redisTokenRepository.deleteById(oldPayload.getJwtId());
 
-            String newAccessToken = jwtService.generateToken(user);
-            String newRefreshToken = jwtService.generateRefreshToken(user);
-            saveTokenToRedis(jwtService.parseToken(newRefreshToken, TokenType.REFRESH_TOKEN));
-
-            return TokenResponse.builder()
-                    .accessToken(newAccessToken)
-                    .refreshToken(newRefreshToken)
-                    .userId(user.getId())
-                    .build();
+            return getTokenResponse(user);
         }
 
         @Override
         public String removeToken(HttpServletRequest request) {
             log.info("[REMOVE_TOKEN] Logout request");
             String token = extractBearerToken(request);
-            TokenPayload payload = jwtService.parseToken(token, TokenType.ACCESS_TOKEN);
-            if (payload.getExpiredTime().before(new Date())) {
-                throw new AppException(ErrorCode.TOKEN_EXPIRED);
+
+            String userId;
+            TokenPayload payload = null;
+
+            try {
+                payload = jwtService.parseToken(token, TokenType.ACCESS_TOKEN);
+                userId = payload.getUserId(); // ✅ Lấy từ payload luôn
+            } catch (Exception e) {
+                log.warn("[REMOVE_TOKEN] Token parse failed: {}", e.getMessage());
+                // ✅ Extract từ expired token
+                userId = jwtService.extractUserIdWithoutValidation(token, TokenType.ACCESS_TOKEN);
+                log.info("[REMOVE_TOKEN] Extracted userId from expired token: {}", userId);
             }
-            // Mark token as revoked
-            saveTokenToRedis(payload);
+
+            // Blacklist nếu token còn hạn
+            if (payload != null && payload.getExpiredTime().after(new Date())) {
+                saveTokenToRedis(payload, TokenType.ACCESS_TOKEN, userId);
+                log.info("[REMOVE_TOKEN] Token blacklisted: {}", payload.getJwtId());
+            } else {
+                log.info("[REMOVE_TOKEN] Skip blacklist (token expired/invalid)");
+            }
+
+            // Xóa refresh token
+            redisTokenRepository.deleteByUserIdAndTokenType(userId, TokenType.REFRESH_TOKEN);
+            log.info("[REMOVE_TOKEN] Deleted refresh tokens for userId={}", userId);
+
             return "Logout successful";
         }
 
@@ -162,26 +184,20 @@
                     .orElseThrow(() -> new AppException(ErrorCode.EMAIL_NOT_FOUND));
 
             String resetToken = jwtService.generateResetToken(user);
-            saveTokenToRedis(jwtService.parseToken(resetToken, RESET_TOKEN));
+            TokenPayload resetPayload = jwtService.parseToken(resetToken, RESET_TOKEN);
+            saveTokenToRedis(resetPayload, RESET_TOKEN, user.getId());
 
             // Gửi email
-            String resetLink = String.format("%s/reset-password?token=%s", /*frontend*/ "https://frontend.example.com", resetToken);
+            String resetLink = "http://frontend.example.com/reset-password?token=" + resetToken;
             log.info("[FORGOT_PASSWORD] Reset link generated for {} (do not log token in prod)", cleanEmail);
-            // emailService.sendResetPasswordEmail(cleanEmail, resetLink);
-    //        // Gửi email chứa liên kết đặt lại mật khẩu
-    //        try {
-    //            emailService.sendResetPasswordEmail(user.getEmail(), resetToken);
-    //        } catch (MessagingException e) {
-    //            log.error("Lỗi khi gửi email đặt lại mật khẩu: {}", e.getMessage());
-    //            throw new InvalidDataException("Không thể gửi email đặt lại mật khẩu");
-    //        }
-            String confirmLink = String.format("""
-                    curl --location 'http://localhost:8080/auth/reset-password' \\
-                    --header 'accept: */*' \\
-                    --header 'Content-Type: application/json' \\
-                    --data '%s'""", resetToken);
-            log.info("--> confirmLink: {}", confirmLink);
-
+            kafkaTemplate.send("notification-delivery", NotificationEvent.builder()
+                    .channel("EMAIL")
+                    .recipient(user.getEmail())
+                    .templateCode("CHANGE_PASSWORD")
+                    .param(Map.of("username", user.getUsername(), "link",
+                            resetLink))
+                    .subject("Thay đổi mật khẩu Devteria")
+                    .build());
             return resetToken;
         }
 
@@ -238,19 +254,22 @@
             log.info("[SIGN UP] User registered: {}", user.getEmail());
 
             String verificationToken = jwtService.generateVerificationToken(user);
-            saveTokenToRedis(jwtService.parseToken(verificationToken, VERIFICATION_TOKEN));
+            TokenPayload payload = jwtService.parseToken(verificationToken, VERIFICATION_TOKEN);
+            saveTokenToRedis(payload, VERIFICATION_TOKEN, user.getId());
             log.info("[SIGN UP] Verification token generated for {}", user.getEmail());
 
-            // 6️⃣ (Tùy chọn) Gửi mail xác minh
-            String verifyLink = "http://frontend-domain/verify?token=" + verificationToken;
-            log.info("Verification link: {}", verifyLink);
-            // emailService.sendVerificationEmail(user.getEmail(), verifyLink);
-    //        try {
-    //            emailService.sendVerificationEmail(user.getEmail(), verificationToken);
-    //        } catch (MessagingException e) {
-    //            log.error("Lỗi khi gửi email xác nhận: {}", e.getMessage());
-    //            throw new InvalidDataException("Không thể gửi email xác nhận");
-    //        }
+            //  Gửi mail xác minh
+            // thay bang duong dan FE neu co
+            String verifyLink = "http://localhost:8888/api/auth/verify?token=" + verificationToken;
+            kafkaTemplate.send("notification-delivery", NotificationEvent.builder()
+                    .channel("EMAIL")
+                    .recipient(user.getEmail())
+                    .templateCode("VERIFY_EMAIL")
+                    .param(Map.of("username", user.getUsername(), "link",
+                            verifyLink))
+                    .subject("Xác nhận tài khoản Devteria")
+                    .build());
+            log.info("[SIGN UP] Verification email sent to {}", user.getEmail());
             return "Đăng ký thành công! Vui lòng kiểm tra email để xác nhận.";
         }
 
@@ -274,39 +293,54 @@
             } catch (Exception e) {
                 log.warn("[VERIFY_EMAIL] profile creation failed for user={}, will continue login. error={}", user.getEmail(), e.getMessage());
             }
-
-            // Tự động đăng nhập — sinh Access Token & Refresh Token
-            String accessToken = jwtService.generateToken(user);
-            String refreshToken = jwtService.generateRefreshToken(user);
-
-            saveTokenToRedis(jwtService.parseToken(refreshToken, TokenType.REFRESH_TOKEN));
-            //***gui 1 thong bao cho user biet da kich hoat thanh cong
-
-
+            //gui 1 thong bao cho user biet da kich hoat thanh cong
+            kafkaTemplate.send("notification-delivery", NotificationEvent.builder()
+                    .channel("PUSH")
+                    .recipient(user.getId())
+                    .templateCode("REGISTRATION_SUCCESS")
+                    .param(Map.of("username", user.getUsername()))
+                    .subject("Đăng ký thành công")
+                    .body("Chúc mừng " + user.getUsername() + ", bạn đã đăng ký thành công!")
+                    .build());
             log.info("[VERIFY_EMAIL] user {} verified successfully", user.getEmail());
-            //rả về TokenResponse cho FE
-            return TokenResponse.builder()
-                    .accessToken(accessToken)
-                    .refreshToken(refreshToken)
-                    .userId(user.getId())
-                    .build();
+            return getTokenResponse(user);
         }
 
         @Override
         public IntrospectResponse introspect(IntrospectRequest request) {
             try {
                 var token = request.getToken();
-                String email = jwtService.extractEmail(token, TokenType.ACCESS_TOKEN);
-                User user = userRepository.findByEmail(email)
-                        .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
+                TokenPayload payload = jwtService.parseToken(token, TokenType.ACCESS_TOKEN);
 
+                // Access token trong Redis = đã bị blacklist (logout)
+                if (redisTokenRepository.existsById(payload.getJwtId())) {
+                    log.info("[INTROSPECT] Token is blacklisted (logout): {}", payload.getJwtId());
+                    return IntrospectResponse.builder().valid(false).build();
+                }
+                var userId = payload.getUserId();
+                User user = userRepository.findById(userId)
+                        .orElseThrow(() -> new AppException(ErrorCode.USER_NOT_EXISTED));
                 // Kiểm tra token hợp lệ hay không
                 boolean valid = jwtService.isValid(token, TokenType.ACCESS_TOKEN, user);
+                if (!valid) {
+                    log.info("[INTROSPECT] Token expired or invalid: {}", payload.getJwtId());
+                    return IntrospectResponse.builder().valid(false).build();
+                }
+                // ✅ Kiểm tra user còn active không
+                if (!user.isEnabled()) {
+                    log.info("[INTROSPECT] User is not active: {}", userId);
+                    return IntrospectResponse.builder().valid(false).build();
+                }
                 return IntrospectResponse.builder()
-                        .valid(valid)
+                        .valid(true)
+                        .userId(user.getId())
+                        .roles(user.getAuthorities().stream()
+                                .map(GrantedAuthority::getAuthority)
+                                .toList())
                         .build();
             }
-            catch (AppException e) {
+            catch (Exception e) {
+                log.warn("[INTROSPECT] Token validation failed: {}", e.getMessage());
                 return IntrospectResponse.builder()
                         .valid(false)
                         .build();

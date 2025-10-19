@@ -2,7 +2,6 @@ package backend.example.identityservice.config;
 
 
 import backend.example.identityservice.service.impl.UserService;
-import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Bean;
@@ -21,7 +20,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 
@@ -29,13 +27,12 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @RequiredArgsConstructor
 @Slf4j
 @EnableWebSecurity
-@EnableMethodSecurity
+@EnableMethodSecurity()
 public class AppConfig implements WebMvcConfigurer {
-    private final UserService userService;
     private final PreFilter preFilter;
 
     private static final String[] PUBLIC_ENDPOINTS = {
-            "/users/registration", "/auth/token", "/auth/introspect", "/auth/logout", "/auth/refresh"
+            "/internal/users", "/internal/users/**", "/auth/**"
     };
 
     @Bean
@@ -43,12 +40,6 @@ public class AppConfig implements WebMvcConfigurer {
         return new BCryptPasswordEncoder();
     }
 
-    // 3. UserDetailsService
-    @Bean
-    public UserDetailsService userDetailsService() {
-        return userService::findByEmail; // hoặc findByUsername nếu bạn dùng username
-
-    }
 
     @Bean
     AuthenticationManager authenticationManager(AuthenticationConfiguration configuration) throws Exception {

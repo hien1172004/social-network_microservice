@@ -13,8 +13,8 @@ import java.util.Date;
 @Builder
 @FieldDefaults(level = AccessLevel.PRIVATE)
 public class TokenPayload {
-    String token;
     String jwtId;
+    String userId;
     Date expiredTime;
 
 }

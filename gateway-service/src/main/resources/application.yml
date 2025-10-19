@@ -22,6 +22,12 @@ spring:
             - Path=${app.api-prefix}/profile/**
           filters:
             - StripPrefix=2
+        - id: notification-service
+          uri: lb://notification-service
+          predicates:
+            - Path=${app.api-prefix}/notification/**
+          filters:
+            - StripPrefix=2
 
 #jwt:
 #  secretKey: ${JWT_SECRET_KEY:VpKMvbaC6AdlBFwJv+1uw8Fxmk1X4NbHx4LZifIS82A=}
